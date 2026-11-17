@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      ORTOOLS_TAG: v9.15
+      ORTOOLS_PKG: v9.15.6755
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 不本地编译 OR-Tools：直接下载官方 ubuntu-24.04 预编译 C++ 包，
+      # 通过 CMAKE_PREFIX_PATH 让 find_package(ortools CONFIG) 命中。
+      - name: Install prebuilt OR-Tools C++ package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET="or-tools_amd64_ubuntu-24.04_cpp_${ORTOOLS_PKG}.tar.gz"
+          URL="https://github.com/google/or-tools/releases/download/${ORTOOLS_TAG}/${ASSET}"
+          echo "Downloading ${URL}"
+          curl --fail --location --retry 3 --output /tmp/ortools.tar.gz "${URL}"
+
+          EXTRACT_DIR="${RUNNER_TEMP}/ortools-extract"
+          rm -rf "${EXTRACT_DIR}"
+          mkdir -p "${EXTRACT_DIR}"
+          tar -xzf /tmp/ortools.tar.gz -C "${EXTRACT_DIR}"
+
+          CONFIG=$(find "${EXTRACT_DIR}" \
+            \( -name 'ortoolsConfig.cmake' -o -name 'ortools-config.cmake' \) \
+            -print -quit)
+          if [ -z "${CONFIG}" ]; then
+            echo "::error::ortoolsConfig.cmake not found in the archive"
+            tar -tzf /tmp/ortools.tar.gz | head -20
+            exit 1
+          fi
+          echo "CMake config: ${CONFIG}"
+          # <prefix>/lib/cmake/ortools/ortoolsConfig.cmake -> <prefix>
+          PREFIX=$(cd "$(dirname "$(dirname "$(dirname "${CONFIG}")")")" && pwd)
+          echo "CMake prefix: ${PREFIX}"
+          echo "CMAKE_PREFIX_PATH=${PREFIX}" >> "${GITHUB_ENV}"
+          echo "LD_LIBRARY_PATH=${PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "${GITHUB_ENV}"
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DORTOOLS_REQUIRE_PREBUILT=ON
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --parallel 4
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run RL demo
+        shell: bash
+        run: ./build/rl_demo
