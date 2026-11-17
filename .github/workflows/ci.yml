@@ -45,10 +45,12 @@ jobs:
             exit 1
           fi
           echo "CMake config: ${CONFIG}"
-          # <prefix>/lib/cmake/ortools/ortoolsConfig.cmake -> <prefix>
-          PREFIX=$(cd "$(dirname "$(dirname "$(dirname "${CONFIG}")")")" && pwd)
+          CONFIG_DIR=$(dirname "${CONFIG}")
+          # <prefix>/lib/cmake/ortools -> <prefix>（上溯三层）
+          PREFIX=$(cd "${CONFIG_DIR}/../../.." && pwd)
           echo "CMake prefix: ${PREFIX}"
           echo "CMAKE_PREFIX_PATH=${PREFIX}" >> "${GITHUB_ENV}"
+          echo "ORTOOLS_CONFIG_DIR=${CONFIG_DIR}" >> "${GITHUB_ENV}"
           echo "LD_LIBRARY_PATH=${PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "${GITHUB_ENV}"
 
       - name: Configure
@@ -57,6 +59,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DORTOOLS_REQUIRE_PREBUILT=ON
+          -Dortools_DIR="${ORTOOLS_CONFIG_DIR}"
 
       - name: Build
         shell: bash
